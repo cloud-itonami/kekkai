@@ -1,0 +1,68 @@
+{:itonami.blueprint/id "kekkai"
+ :itonami.blueprint/name "Kekkai — governed tailnet coordination"
+ :itonami.blueprint/domain :network/zero-trust-overlay
+ :itonami.blueprint/license "Apache-2.0"
+ :itonami.blueprint/social-impact [:anti-surveillance :self-hosting :transparency]
+ :itonami.blueprint/governor :tailnet-governor
+ :itonami.blueprint/robotics false
+ :itonami.blueprint/required-technologies [:identity :audit-ledger :payments]
+ :itonami.blueprint/graph :langgraph-stategraph
+ :itonami.blueprint/ledger :append-only
+ :itonami.blueprint/status :public-oss
+ :itonami.blueprint/phase-default 0
+ :itonami.blueprint/keying :function
+ :itonami.blueprint/isic "6190"
+ :itonami.blueprint/adr "2608060100-kekkai-itonami-mount-and-x402"
+
+ ;; :partial, not :implemented. The engine (kotoba-lang/kekkai +
+ ;; kotoba-lang/kekkai-node) is implemented and tested, and as of 2026-08-06 the
+ ;; netmap it publishes is Ed25519-signed with cross-repo byte parity. What this
+ ;; mount exposes is the SUBSET that needs no private key: policy evaluation and
+ ;; envelope verification. Netmap issuance stays on the control plane, because
+ ;; issuing one means holding the signing key, and an edge Worker is the wrong
+ ;; place to hold it.
+ :itonami.blueprint/maturity :partial
+
+ :itonami.blueprint/mount "/kekkai"
+ :itonami.blueprint/endpoint "https://app.itonami.cloud/kekkai"
+ :itonami.blueprint/engine
+ {:control-plane "https://github.com/kotoba-lang/kekkai"
+  :data-plane "https://github.com/kotoba-lang/kekkai-node"}
+
+ ;; What is sold, and the one thing that must never be.
+ ;;
+ ;; The engine's charter (G4) says there is no :traffic/* or :user/activity
+ ;; namespace: the control plane authorises reachability and never records what
+ ;; flows through the tunnels. A metered overlay would have to contradict that —
+ ;; you cannot bill per gigabyte without measuring gigabytes — so the meter is
+ ;; put on AUTHORISATION instead, which is a decision the plane already makes
+ ;; and already logs to its genealogy ledger.
+ :itonami.blueprint/sells
+ [{:resource "/x402/acl/decide"
+   :unit :one-edge-decision
+   :what "deny-by-default ACL evaluation with the organisation boundary applied
+          first: same-tailnet grant, cross-tailnet peering, or a named refusal
+          (:deny-by-default / :cross-tailnet / :peering-grant-missing)"
+   :usd "0.001"}]
+
+ :itonami.blueprint/free
+ [{:resource "/netmap/verify"
+   :what "Ed25519 signed-netmap envelope verification"
+   :why "charging to check whether an artifact is authentic prices the one
+         action that protects the buyer. A node that cannot afford to verify
+         runs unverified, which is the failure this whole boundary exists to
+         prevent."}
+  {:resource "/health"}
+  {:resource "/blueprint.edn"}]
+
+ :itonami.blueprint/procures
+ {:from :none
+  :why "this actor's cost of goods is its own computation, not someone else's
+        inference. Nothing to procure."}
+
+ :itonami.blueprint/x402
+ {:facilitator "https://x402.nexus"
+  :seller "kekkai"
+  :asset "USDC"
+  :network "base"
+  :settlement :nexus-x402}}

@@ -1,0 +1,35 @@
+{:paths ["src" "resources"]
+ ;; The engine is kotoba-lang/kekkai. This repository consumes `kekkai.acl` —
+ ;; pure .cljc, no I/O, no store — and adds nothing to it. The deny-by-default
+ ;; reading, the organisation boundary, and the three distinct refusal reasons
+ ;; are decided by the same code the TailnetGovernor decides with; a second
+ ;; implementation at the edge would be a weaker copy that drifts.
+ :deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        io.github.kotoba-lang/kekkai
+        {:git/url "https://github.com/kotoba-lang/kekkai.git"
+         :git/sha "7c344b1ab9c5a5879b8b3970f2dd939927ab7539"}
+        ;; x402 codec: the 402 challenge body and the payment-payload shape.
+        ;; kotoba-lang/pay is the protocol brain nexus-x402 itself runs on, so
+        ;; seller and facilitator agree by sharing a codec rather than by two
+        ;; readings of one spec.
+        io.github.kotoba-lang/pay
+        {:git/url "https://github.com/kotoba-lang/pay.git"
+         :git/sha "889eb0da0aa2422a7e7d5af838d87fcc9bc56440"}
+        io.github.kotoba-lang/jp-go-digital-design-system
+        {:git/url "https://github.com/kotoba-lang/jp-go-digital-design-system.git"
+         :git/sha "cc8f4849af5def7ea535fd6c0b8a623ccca645e9"}
+        io.github.kotoba-lang/html
+        {:git/url "https://github.com/kotoba-lang/html.git"
+         :git/sha "8691061f540b20813398c596332829edac164166"}}
+ :aliases
+ {;; The Worker build. shadow-cljs reads :deps through this alias, and the
+  ;; macro in kekkai.itonami.inline needs jp-go-dds on the classpath at
+  ;; *compile* time to inline dds.css into the bundle.
+  :cljs {:extra-deps {org.clojure/clojurescript {:mvn/version "1.11.132"}
+                      thheller/shadow-cljs {:mvn/version "2.28.20"}}}
+  :test {:extra-paths ["test"]
+         :extra-deps {io.github.cognitect-labs/test-runner
+                      {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts ["-m" "cognitect.test-runner"]}
+  :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
+         :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test" "--fail-level" "error"]}}}

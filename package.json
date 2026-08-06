@@ -1,0 +1,13 @@
+{
+  "name": "cloud-itonami-kekkai",
+  "private": true,
+  "comment": "shadow-cljs compiles src/kekkai/itonami/worker.cljs -> dist/worker.js, served at app.itonami.cloud/kekkai through itonami-fleet-dispatch. dds.css is inlined at compile time.",
+  "devDependencies": {
+    "shadow-cljs": "^2.28.20",
+    "wrangler": "^4.69.0"
+  },
+  "scripts": {
+    "build": "shadow-cljs release worker",
+    "ship": "wrangler deploy --dispatch-namespace ai-gftd-repository-dispatch"
+  }
+}
