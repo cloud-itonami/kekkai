@@ -14,7 +14,7 @@
   cannot afford to verify runs unverified — which is the failure the whole
   signed-netmap boundary exists to prevent."
   (:require [cljs.reader :as reader]
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 (defn- b64->bytes [s]
   (let [binary (js/atob s)
