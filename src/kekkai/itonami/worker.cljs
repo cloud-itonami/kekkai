@@ -13,7 +13,7 @@
   the half that needs no secret — evaluate a policy, verify a signature."
   (:require [cljs.reader :as reader]
             [goog.object :as gobj]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [jp-go-dds.page :as page]
             [jp-go-dds.tokens :as tokens]
             [kekkai.itonami.decide :as decide]
