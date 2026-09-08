@@ -19,7 +19,7 @@
   contrast, is already made and already written to the genealogy ledger. It is
   the only unit here that can be counted without learning something about the
   user that the plane promised not to learn."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kekkai.acl :as acl]))
 
 (def max-nodes
