@@ -9,8 +9,36 @@
   `--hig-spacing-*`, no `--hig-text-*-size`, and no `--hig-radius-*`, and an
   unmapped custom property resolves to nothing rather than erroring. So spacing
   here is `em`-relative and the type scale is DADS's own utility classes; a
-  `var(--hig-spacing-4)` would silently collapse to zero."
-  (:require [jp-go-dds.core :as dds]))
+  `var(--hig-spacing-4)` would silently collapse to zero.
+
+  ## Why the whole page is assembled here rather than in the Worker
+
+  `page` composes the document the Worker serves at `GET /`, and the Worker
+  calls it rather than assembling one of its own. The offline copy in
+  `docs/demo.html` is produced by calling the same function from the JVM with
+  the same stylesheet, so the two agree by BEING the same function — not by a
+  second assembly that has to be kept in step. A demo page built from a copy of
+  these arguments would be a mockup the moment either side moved, and a mockup
+  that renders is worse than no demo, because it looks like evidence."
+  (:require [jp-go-dds.core :as dds]
+            [jp-go-dds.page :as page]
+            [jp-go-dds.tokens :as tokens]))
+
+(def mount
+  "The path `itonami-fleet-dispatch` mounts this actor at.
+
+  The script name, the repository name and `blueprint.edn`'s
+  `:itonami.blueprint/mount` are all this string; they agree by being the same
+  string rather than through a table."
+  "/kekkai")
+
+(def price
+  "The list price of one edge decision, as rendered.
+
+  `blueprint.edn` is the authority for what this actor sells; this is that
+  number in the units the page shows it in. `tools/kekkai/itonami/surface.clj
+  --check` refuses when the two stop agreeing."
+  "USD 0.001")
 
 (def app-css
   "Small and unlayered, which is the contract: library CSS ships inside
@@ -23,11 +51,23 @@
 .k-free { color: var(--hig-color-label-secondary, inherit); }
 ")
 
-(defn- endpoint-rows [{:keys [mount]}]
+(def page-meta
+  "Document-level metadata for the served page."
+  {:title "kekkai — 結界 | itonami"
+   :description "ゼロトラスト・メッシュ制御面の営み。ポリシー判定と署名検証を公開する。"
+   :lang "ja"})
+
+(defn endpoint-rows
+  "The endpoint table, as rows.
+
+  Public because the surface generator's `--check` reads it: these paths and
+  prices restate `blueprint.edn`, and a page that advertises a price the
+  blueprint does not sell at is a quote the seller will not honour."
+  [{:keys [mount price]}]
   [["GET" (str mount "/health") "liveness" "free"]
    ["GET" (str mount "/blueprint.edn") "this actor's Open Business Blueprint" "free"]
    ["POST" (str mount "/netmap/verify") "verify a signed netmap envelope" "free"]
-   ["POST" (str mount "/x402/acl/decide") "one deny-by-default edge decision" "USD 0.001"]])
+   ["POST" (str mount "/x402/acl/decide") "one deny-by-default edge decision" price]])
 
 (defn body
   [{:keys [price] :as opts}]
@@ -83,3 +123,16 @@
       "（fail closed）。ただし理由は " [:code ":facilitator-unreachable"]
       " であって " [:code ":payment-invalid"]
       " ではない — 「払い直せ」と「待て」は違う指示だから。"]))])
+
+(defn page
+  "The document the Worker serves at `GET /`, as an HTML string.
+
+  `css` is jp-go-dds's own stylesheet. The Worker cannot read it at runtime —
+  a Worker has no filesystem — so it inlines it from the classpath while
+  shadow-cljs compiles; the generator reads the same classpath resource from
+  the JVM. One dependency pin, one stylesheet, and therefore one page."
+  [{:keys [css]}]
+  (page/->page (assoc page-meta
+                      :css css
+                      :app-css (str tokens/bridge-css "\n" app-css))
+               (body {:mount mount :price price})))

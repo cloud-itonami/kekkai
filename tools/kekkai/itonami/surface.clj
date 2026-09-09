@@ -1,0 +1,364 @@
+(ns kekkai.itonami.surface
+  "Generates this actor's product surface from the actor itself.
+
+  Three files, none of them written by hand:
+
+  | `docs/demo.html`         | the page the Worker serves at `GET /`, offline |
+  | `docs/business-model.md` | what is sold, what is free, and why             |
+  | `docs/pricing.md`        | the price list, and real answers at that price   |
+
+  ## Why generated rather than written
+
+  A hand-written demo page is a mockup, and a mockup that renders is worse than
+  no demo at all: it reads as evidence that the thing works while being
+  evidence only that someone typed HTML. So every claim these files make is
+  taken from something that already had to be true for the Worker to run.
+
+  - The page comes from `kekkai.itonami.view/page` — the same function
+    `kekkai.itonami.worker` calls — with the same `jp_go_dds/dds.css` off the
+    same classpath. The offline copy and the served page are one function's
+    output twice, not two assemblies kept in step.
+  - The prices come from `blueprint.edn`, the file the Worker serves verbatim
+    at `GET /blueprint.edn`.
+  - The decision transcripts are computed here by calling
+    `kekkai.itonami.decide/decide`. They are what the paid endpoint returns,
+    on the planes `kekkai.itonami.decide-test` already asserts against —
+    required rather than copied, because a second copy of a fixture is a
+    fixture that drifts.
+
+  ## Modes
+
+      clojure -M:surface            # write the three files
+      clojure -M:surface --check    # regenerate and compare; write nothing
+
+  `--check` exits 0 clean, 1 when a file on disk differs from what the actor
+  produces now or when the page quotes a price `blueprint.edn` does not sell
+  at, and 2 when it could not read an input at all. Two is separate from one on
+  purpose: a check that cannot run must not be indistinguishable from a check
+  that ran and found nothing."
+  (:require [clojure.java.io :as io]
+            [clojure.edn :as edn]
+            [clojure.pprint :as pp]
+            [kotoba.lang.text :as t]
+            [kekkai.itonami.decide :as decide]
+            [kekkai.itonami.decide-test :as fixture]
+            [kekkai.itonami.view :as view]))
+
+(def ^:private banner
+  "Written into every generated file. The path is the one a reader needs to
+   regenerate it, which is the only useful thing a 'do not edit' notice can
+   say."
+  "tools/kekkai/itonami/surface.clj")
+
+(def dds-css-resource "jp_go_dds/dds.css")
+
+;; ── deterministic printing ──────────────────────────────────────────────────
+;;
+;; `--check` compares bytes, so the generator must be a function of its inputs
+;; and nothing else. No timestamp is embedded anywhere for the same reason: a
+;; generated file carrying the moment it was generated differs from itself on
+;; every run, and a check that always fails is a check nobody reads.
+
+(defn- deep-sort
+  "`x` with every map in key order, so printing is stable run to run.
+
+  Keys are ordered by their printed form rather than by `compare`: a plane
+  mixes string tailnet names with keyword fields, and `compare` throws across
+  types instead of ordering them."
+  [x]
+  (let [by-print (fn [a b] (compare (pr-str a) (pr-str b)))]
+    (cond
+      (map? x) (into (sorted-map-by by-print)
+                     (map (fn [[k v]] [k (deep-sort v)])) x)
+      (set? x) (into (sorted-set-by by-print) (map deep-sort) x)
+      (vector? x) (mapv deep-sort x)
+      (seq? x) (mapv deep-sort x)
+      :else x)))
+
+(defn- edn-block [x]
+  (binding [*print-namespace-maps* false
+            pp/*print-right-margin* 76]
+    (t/trim (with-out-str (pp/pprint (deep-sort x))))))
+
+(defn- squish
+  "One line. Blueprint prose is indented across several source lines, and that
+   indentation is an artifact of where it is written, not of what it says."
+  [s]
+  (t/trim (t/replace (str s) #"\s+" " ")))
+
+;; ── inputs ──────────────────────────────────────────────────────────────────
+
+;; Every read and write below names UTF-8 explicitly. The page is mostly
+;; Japanese, `--check` compares what was read against what was generated, and a
+;; JVM whose default charset is not UTF-8 would round-trip those characters into
+;; a difference that looks exactly like someone having edited the file by hand.
+
+(defn- read-blueprint [root]
+  (let [f (io/file root "blueprint.edn")]
+    (when (.exists f)
+      (edn/read-string (slurp f :encoding "UTF-8")))))
+
+(defn- read-dds-css []
+  (when-let [r (io/resource dds-css-resource)]
+    (slurp r :encoding "UTF-8")))
+
+;; ── the decision transcripts ────────────────────────────────────────────────
+;;
+;; The planes are `kekkai.itonami.decide-test`'s, required rather than copied.
+;; The answers are not written down at all — they are whatever `decide/decide`
+;; returns when this file is generated.
+
+(def ^:private peering-for-this-edge
+  {:id "p" :a "default" :b "acme" :status "active"
+   :approved-by ["default" "acme"]
+   :grants [{:from "default" :src ["tag:laptop"] :dst ["tag:cache"] :ports [443]}]})
+
+(defn- scenarios []
+  [{:title "A grant exists — the edge is allowed"
+    :note "The answer carries the grant that allowed it, so an operator can see
+           which line of policy is doing the work."
+    :request {:plane {:policies fixture/policies :peerings []}
+              :src fixture/laptop :dst fixture/server}}
+   {:title "No grant — :deny-by-default"
+    :note "Same tailnet, nothing granting this direction. The fix is a policy
+           edit."
+    :request {:plane {:policies fixture/policies :peerings []}
+              :src fixture/server :dst fixture/laptop}}
+   {:title "Two organisations, no peering — :cross-tailnet"
+    :note "Not a policy edit: the fix is a negotiation between two
+           organisations, so it is refused under its own name."
+    :request {:plane {:policies fixture/policies :peerings []}
+              :src fixture/laptop :dst fixture/cache}}
+   {:title "Peered and mutually approved — the edge is allowed"
+    :note "`:via :peering` rather than `:via :policy`; the peering that carried
+           it is named."
+    :request {:plane {:policies fixture/policies
+                      :peerings [peering-for-this-edge]}
+              :src fixture/laptop :dst fixture/cache}}])
+
+(defn- transcripts []
+  (mapv (fn [{:keys [request] :as s}]
+          (assoc s :answer (decide/decide request)))
+        (scenarios)))
+
+;; ── the three documents ─────────────────────────────────────────────────────
+
+(defn- md-banner [what]
+  (str "<!-- Generated by `" banner "` from " what ".\n"
+       "     Do not edit by hand: `clojure -M:surface --check` refuses when this\n"
+       "     file stops matching what the actor produces. -->\n"))
+
+(defn- price-rows
+  "The price list, from the blueprint. `nil` price means the blueprint listed a
+   resource without one, which is reported as such rather than as free."
+  [bp]
+  (concat
+   (for [{:keys [resource unit usd what]} (:itonami.blueprint/sells bp)]
+     [resource (if usd (str "USD " usd) "(no price in blueprint)")
+      (if unit (str unit) "") (squish what)])
+   (for [{:keys [resource what]} (:itonami.blueprint/free bp)]
+     [resource "free" "" (squish (or what ""))])))
+
+(defn business-model-md [bp]
+  (let [{:keys [control-plane data-plane]} (:itonami.blueprint/engine bp)]
+    (str
+     (md-banner "`blueprint.edn`")
+     "# " (:itonami.blueprint/name bp) " — business model\n\n"
+     "The machine-readable original is [`blueprint.edn`](../blueprint.edn), which this\n"
+     "actor also serves verbatim at `GET " (:itonami.blueprint/mount bp) "/blueprint.edn`.\n"
+     "This page is that file in prose; where they disagree, the blueprint is right.\n\n"
+
+     "| | |\n|---|---|\n"
+     "| domain | `" (:itonami.blueprint/domain bp) "` |\n"
+     "| ISIC | " (:itonami.blueprint/isic bp) " |\n"
+     "| governor | `" (:itonami.blueprint/governor bp) "` |\n"
+     "| ledger | `" (:itonami.blueprint/ledger bp) "` |\n"
+     "| licence | " (:itonami.blueprint/license bp) " |\n"
+     "| status | `" (:itonami.blueprint/status bp) "` |\n"
+     "| maturity | `" (:itonami.blueprint/maturity bp) "` |\n"
+     "| mounted at | " (:itonami.blueprint/endpoint bp) " |\n"
+     "| ADR | `" (:itonami.blueprint/adr bp) "` |\n\n"
+
+     "## What this repository is, and what it is not\n\n"
+     "The engine is elsewhere and is not duplicated here: [" control-plane "]("
+     control-plane ") is the control plane and [" data-plane "](" data-plane ")\n"
+     "is the data plane. This repository is the half of that engine which needs no\n"
+     "private key — policy evaluation and envelope verification — wrapped in an HTTP\n"
+     "envelope and a payment gate.\n\n"
+     "It signs nothing. Issuing a netmap means holding the authority key, and a Worker\n"
+     "reachable from the public internet is the wrong place to keep one.\n\n"
+
+     "## What is sold\n\n"
+     "| resource | price | unit | what you get |\n|---|---|---|---|\n"
+     (t/join "\n"
+             (for [[r p u w] (price-rows bp)]
+               (str "| `" r "` | " p " | " (if (t/blank? u) "—" (str "`" u "`")) " | "
+                    (if (t/blank? w) "—" w) " |")))
+     "\n\n"
+
+     "## Why authorisation is the meter, and bandwidth cannot be\n\n"
+     "The engine's charter (G4) is that there is no `:traffic/*` and no\n"
+     "`:user/activity` namespace: the control plane authorises reachability and never\n"
+     "records what flows through the tunnels. A per-gigabyte overlay would have to\n"
+     "measure gigabytes, so it cannot be built on this engine without contradicting the\n"
+     "property that makes the engine worth using.\n\n"
+     "So the meter sits on **authorisation** — a decision the plane already makes and\n"
+     "already writes to its genealogy ledger. It is the only unit here that can be\n"
+     "counted without learning something the plane promised not to learn.\n\n"
+
+     "## What is free, and why that is a design decision\n\n"
+     (t/join "\n\n"
+             (for [{:keys [resource why]} (:itonami.blueprint/free bp)
+                   :when why]
+               (str "**`" resource "`** — " (squish why))))
+     "\n\n"
+
+     "## Cost of goods\n\n"
+     "Procures from `" (:from (:itonami.blueprint/procures bp)) "`.\n\n"
+     (squish (:why (:itonami.blueprint/procures bp))) "\n\n"
+
+     "## Settlement\n\n"
+     (let [x (:itonami.blueprint/x402 bp)]
+       (str "x402, thin mode. This seller keeps its own gate and delegates on-chain\n"
+            "verification to [" (:facilitator x) "](" (:facilitator x) ").\n\n"
+            "| | |\n|---|---|\n"
+            "| seller | `" (:seller x) "` |\n"
+            "| asset | " (:asset x) " |\n"
+            "| network | " (:network x) " |\n"
+            "| settlement | `" (:settlement x) "` |\n"))
+     "\n"
+     "Required technologies: "
+     (t/join ", " (map #(str "`" % "`") (:itonami.blueprint/required-technologies bp)))
+     ". Social impact claimed: "
+     (t/join ", " (map #(str "`" % "`") (:itonami.blueprint/social-impact bp)))
+     ".\n")))
+
+(defn pricing-md [bp transcripts]
+  (str
+   (md-banner "`blueprint.edn` and live calls to `kekkai.itonami.decide/decide`")
+   "# " (:itonami.blueprint/name bp) " — pricing\n\n"
+
+   "| resource | price | what you get |\n|---|---|---|\n"
+   (t/join "\n"
+           (for [[r p _ w] (price-rows bp)]
+             (str "| `" r "` | " p " | " (if (t/blank? w) "—" w) " |")))
+   "\n\n"
+
+   "Paid in " (:asset (:itonami.blueprint/x402 bp)) " on "
+   (:network (:itonami.blueprint/x402 bp))
+   " over x402, verified by [" (:facilitator (:itonami.blueprint/x402 bp)) "]("
+   (:facilitator (:itonami.blueprint/x402 bp)) ").\n\n"
+
+   "## Why verification is free\n\n"
+   (t/join "\n\n"
+           (for [{:keys [resource why]} (:itonami.blueprint/free bp) :when why]
+             (str "**`" resource "`** — " (squish why))))
+   "\n\n"
+
+   "## What one decision buys\n\n"
+   "The unit is one edge decision with the organisation boundary applied first. The\n"
+   "transcripts below are not illustrations: each one was produced by calling\n"
+   "`kekkai.itonami.decide/decide` while this file was generated, on the planes\n"
+   "`kekkai.itonami.decide-test` asserts against. A refusal is a paid answer too —\n"
+   "the three refusals are kept distinct because they call for different actions, and\n"
+   "collapsing them into one `denied` sends an operator to change a policy that\n"
+   "cannot possibly fix the problem.\n\n"
+   (t/join "\n"
+           (for [{:keys [title note request answer]} transcripts]
+             (str "### " title "\n\n"
+                  (squish note) "\n\n"
+                  "Request:\n\n```edn\n" (edn-block request) "\n```\n\n"
+                  "Answer:\n\n```edn\n" (edn-block answer) "\n```\n")))
+   "\n"
+   "## When payment cannot be confirmed\n\n"
+   "The gate fails closed, including when the facilitator is unreachable: a verifier\n"
+   "that cannot reach `/verify` knows nothing about a payment, and \"unknown\" is not\n"
+   "\"paid\". The two closed doors are reported apart — `:facilitator-unreachable`\n"
+   "means wait, `:payment-invalid` means pay again — because one undifferentiated 402\n"
+   "would send a caller who already paid to pay a second time for the same resource.\n"))
+
+;; ── the blueprint / page agreement ──────────────────────────────────────────
+
+(defn page-price-findings
+  "Ways the page can quote a price the blueprint does not sell at.
+
+  Byte-comparing generated files cannot catch this: the page and the blueprint
+  are different files, and both can be internally consistent while advertising
+  different numbers. A quote the seller will not honour is the failure worth
+  refusing over, so it is checked directly."
+  [bp]
+  (let [rows (view/endpoint-rows {:mount view/mount :price view/price})
+        by-path (into {} (map (fn [[_ p _ c]] [p c])) rows)]
+    (concat
+     (when-not (= (:itonami.blueprint/mount bp) view/mount)
+       [{:finding :mount-disagrees
+         :blueprint (:itonami.blueprint/mount bp) :page view/mount}])
+     (for [{:keys [resource usd]} (:itonami.blueprint/sells bp)
+           :let [path (str view/mount resource)
+                 shown (get by-path path)
+                 want (str "USD " usd)]
+           :when (not= shown want)]
+       {:finding :price-not-as-sold :resource resource :sold want :page shown})
+     (for [{:keys [resource]} (:itonami.blueprint/free bp)
+           :let [path (str view/mount resource)
+                 shown (get by-path path)]
+           :when (and shown (not= "free" shown))]
+       {:finding :free-not-as-published :resource resource :page shown}))))
+
+;; ── driver ──────────────────────────────────────────────────────────────────
+
+(defn artifacts
+  "-> {path -> content}. Pure, given the blueprint and the stylesheet."
+  [bp dds-css]
+  {"docs/demo.html" (view/page {:css dds-css})
+   "docs/business-model.md" (business-model-md bp)
+   "docs/pricing.md" (pricing-md bp (transcripts))})
+
+(defn -main [& args]
+  (let [check? (some #{"--check"} args)
+        root (or (second (drop-while #(not= "--root" %) args)) ".")
+        bp (read-blueprint root)
+        dds-css (read-dds-css)]
+    (cond
+      (nil? bp)
+      (do (binding [*out* *err*]
+            (println "REFUSED: no blueprint.edn under" root
+                     "— refusing to report a pass on a surface generated from nothing"))
+          (System/exit 2))
+
+      (nil? dds-css)
+      (do (binding [*out* *err*]
+            (println "REFUSED:" dds-css-resource "is not on the classpath"
+                     "— the page cannot be built without it"))
+          (System/exit 2))
+
+      :else
+      (let [arts (artifacts bp dds-css)
+            price-findings (page-price-findings bp)]
+        (if check?
+          (let [drift (for [[path want] (sort arts)
+                            :let [f (io/file root path)
+                                  have (when (.exists f) (slurp f :encoding "UTF-8"))]
+                            :when (not= have want)]
+                        {:path path
+                         :why (if have :differs :missing)
+                         :have-bytes (count (or have "")) :want-bytes (count want)})]
+            (doseq [d drift]
+              (println "DRIFT" (:path d) (name (:why d))
+                       (str "on-disk=" (:have-bytes d) "B generated=" (:want-bytes d) "B")))
+            (doseq [f price-findings] (println "DISAGREES" (pr-str f)))
+            (println "CHECKED" (count arts) "artifact(s),"
+                     (count (:itonami.blueprint/sells bp)) "sold +"
+                     (count (:itonami.blueprint/free bp)) "free resource(s)")
+            (if (or (seq drift) (seq price-findings))
+              (System/exit 1)
+              (do (println "OK: the surface on disk is what the actor produces now")
+                  (System/exit 0))))
+          (do (doseq [[path content] (sort arts)]
+                (let [f (io/file root path)]
+                  (io/make-parents f)
+                  (spit f content :encoding "UTF-8")
+                  (println "WROTE" path (str (count content) "B"))))
+              (doseq [f price-findings] (println "DISAGREES" (pr-str f)))
+              (when (seq price-findings) (System/exit 1))
+              (System/exit 0)))))))
