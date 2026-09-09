@@ -36,5 +36,12 @@
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1" :git/sha "dfb30dd6605cb6c0efc275e1df1736f6e90d4d73"}}
          :main-opts ["-m" "cognitect.test-runner"]}
+  ;; The product surface: docs/demo.html, docs/business-model.md,
+  ;; docs/pricing.md. `test` is on the path because the decision transcripts in
+  ;; the pricing page are generated on the very planes the test suite asserts
+  ;; against — required rather than copied, so the documented answers cannot
+  ;; drift away from the asserted ones.
+  :surface {:extra-paths ["tools" "test"]
+            :main-opts ["-m" "kekkai.itonami.surface"]}
   :lint {:replace-deps {clj-kondo/clj-kondo {:mvn/version "2024.11.14"}}
          :main-opts ["-m" "clj-kondo.main" "--lint" "src" "test" "--fail-level" "error"]}}}

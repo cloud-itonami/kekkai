@@ -14,8 +14,6 @@
   (:require [cljs.reader :as reader]
             [goog.object :as gobj]
             [kotoba.lang.text :as str]
-            [jp-go-dds.page :as page]
-            [jp-go-dds.tokens :as tokens]
             [kekkai.itonami.decide :as decide]
             [kekkai.itonami.gate :as gate]
             [kekkai.itonami.verify :as verify]
@@ -25,7 +23,10 @@
 (def dds-css (inline-resource "jp_go_dds/dds.css"))
 (def blueprint-edn (inline-file "blueprint.edn"))
 
-(def mount "/kekkai")
+;; view/mount, not a second copy: the page renders these paths and the x402
+;; challenge names one of them, so a local literal here would be a second
+;; source for the same string.
+(def mount view/mount)
 (def max-body-bytes (* 256 1024))
 
 (defn- json-response [body status]
@@ -71,13 +72,7 @@
       (.catch (fn [e] {:error :body-unreadable :detail (str e)}))))
 
 (defn- page-html []
-  (page/->page
-   {:title "kekkai — 結界 | itonami"
-    :description "ゼロトラスト・メッシュ制御面の営み。ポリシー判定と署名検証を公開する。"
-    :lang "ja"
-    :css dds-css
-    :app-css (str tokens/bridge-css "\n" view/app-css)}
-   (view/body {:mount mount :price "USD 0.001"})))
+  (view/page {:css dds-css}))
 
 ;; ── the free half ───────────────────────────────────────────────────────────
 
