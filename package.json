@@ -7,7 +7,7 @@
     "wrangler": "^4.69.0"
   },
   "scripts": {
-    "build": "shadow-cljs release worker",
+    "build": "amu compile --target wasm32-browser worker",
     "ship": "wrangler deploy --dispatch-namespace ai-gftd-repository-dispatch"
   }
 }

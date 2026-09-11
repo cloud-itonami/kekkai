@@ -78,10 +78,10 @@ twice.
 ## Build and ship
 
 ```bash
-clojure -M:test     # the decision pass-through, on the JVM
-clojure -M:lint
+kbb -M:test     # the decision pass-through, on the JVM
+kbb -M:lint
 npm install
-node ../../../scripts/resource-guard.mjs run build -- npx shadow-cljs release worker
+node ../../../scripts/resource-guard.mjs run build -- amu compile --target wasm32-browser worker
 npx wrangler dev --port 8799 --local     # smoke it before shipping
 npm run ship                              # into ai-gftd-repository-dispatch
 ```
