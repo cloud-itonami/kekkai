@@ -48,7 +48,7 @@
   "Written into every generated file. The path is the one a reader needs to
    regenerate it, which is the only useful thing a 'do not edit' notice can
    say."
-  "tools/kekkai/itonami/surface.clj")
+  "tools/kekkai/itonami/surface.cljk")
 
 (def dds-css-resource "jp_go_dds/dds.css")
 

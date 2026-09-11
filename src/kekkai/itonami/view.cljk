@@ -36,7 +36,7 @@
   "The list price of one edge decision, as rendered.
 
   `blueprint.edn` is the authority for what this actor sells; this is that
-  number in the units the page shows it in. `tools/kekkai/itonami/surface.clj
+  number in the units the page shows it in. `tools/kekkai/itonami/surface.cljk
   --check` refuses when the two stop agreeing."
   "USD 0.001")
 
