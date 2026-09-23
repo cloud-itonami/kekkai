@@ -37,7 +37,7 @@
   purpose: a check that cannot run must not be indistinguishable from a check
   that ran and found nothing."
   (:require [clojure.java.io :as io]
-            [clojure.edn :as edn]
+            [kotoba.lang.edn :as edn]
             [clojure.pprint :as pp]
             [kotoba.lang.text :as t]
             [kekkai.itonami.decide :as decide]
