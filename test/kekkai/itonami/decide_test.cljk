@@ -2,7 +2,7 @@
   "The paid resource. What is asserted here is that it is a pass-through: the
   answers must be the ones `kekkai.acl/edge-decision` gives, because a policy
   engine that disagrees with the governor is worse than none."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kekkai.acl :as acl]
             [kekkai.itonami.decide :as decide]))
 
