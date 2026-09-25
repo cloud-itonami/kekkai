@@ -36,7 +36,7 @@
   at, and 2 when it could not read an input at all. Two is separate from one on
   purpose: a check that cannot run must not be indistinguishable from a check
   that ran and found nothing."
-  (:require [clojure.java.io :as io]
+  (:require [kotoba.io :as io]
             [kotoba.lang.edn :as edn]
             [clojure.pprint :as pp]
             [kotoba.lang.text :as t]
@@ -95,7 +95,7 @@
 
 (defn- read-blueprint [root]
   (let [f (io/file root "blueprint.edn")]
-    (when (.exists f)
+    (when (io/exists? f)
       (edn/read-string (slurp f :encoding "UTF-8")))))
 
 (defn- read-dds-css []
@@ -338,7 +338,7 @@
         (if check?
           (let [drift (for [[path want] (sort arts)
                             :let [f (io/file root path)
-                                  have (when (.exists f) (slurp f :encoding "UTF-8"))]
+                                  have (when (io/exists? f) (slurp f :encoding "UTF-8"))]
                             :when (not= have want)]
                         {:path path
                          :why (if have :differs :missing)
